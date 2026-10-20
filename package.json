@@ -1,0 +1,22 @@
+{
+  "name": "private",
+  "version": "0.1.0",
+  "description": "Records only the person's own devices can open.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@noble/ciphers": "2.4.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261016.1",
+    "typescript": "^5.9.0",
+    "@types/node": "^24.0.0"
+  }
+}
