@@ -20,13 +20,12 @@ The cryptography is [noble](https://paulmillr.com/noble/): `@noble/ciphers`, `@n
 ## Use
 
 ```bash
-pnpm install
-pnpm test
+npm install @0001-labs/private
 ```
 
 ```ts
-import { keysFrom, newRecordsKey, newVault, newRecoverySecret, recoveryText, wrapKey } from "./src/private.ts";
-import { bucketsOf, changedRows, openedRows } from "./src/rows.ts";
+import { keysFrom, newRecordsKey, newVault, newRecoverySecret, recoveryText, wrapKey } from "@0001-labs/private";
+import { bucketsOf, changedRows, openedRows } from "@0001-labs/private/rows";
 
 const recordsKey = newRecordsKey();
 const keys = keysFrom(recordsKey);
@@ -35,6 +34,17 @@ const meta = { ...newVault(keys), wraps: [{ kind: "recovery", wrapped: wrapKey(r
 const { put } = changedRows(bucketsOf("payments", payments, (p) => p.date.slice(0, 7), (p) => p.id), keys, {});
 // send meta and put to the store; later, openedRows(rows, keys, ["payments"]) on the device
 ```
+
+The package provides four entry points:
+
+| Import | Where to use it |
+|---|---|
+| `@0001-labs/private` | Keys, recovery, and record encryption |
+| `@0001-labs/private/rows` | Group records and send changed groups |
+| `@0001-labs/private/browser` | Store device keys in IndexedDB and unlock with WebAuthn PRF |
+| `@0001-labs/private/store` | Store encrypted records in a Cloudflare SQLite Durable Object |
+
+The package ships JavaScript and TypeScript declarations. Use Node.js 22.12 or newer when running it in Node. For deployment and recovery requirements, read the [threat model](THREAT-MODEL.md). Run `pnpm install` and `pnpm test` to work on the source.
 
 ## Format
 

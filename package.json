@@ -1,13 +1,14 @@
 {
-  "name": "private",
+  "name": "@0001-labs/private",
   "version": "0.1.0",
-  "description": "Records only the person's own devices can open.",
+  "description": "A library for encrypting records so only the person’s own devices can open them.",
   "license": "Apache-2.0",
   "type": "module",
-  "private": true,
   "scripts": {
     "test": "node --test test/*.test.ts",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "build": "tsc --project tsconfig.build.json",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@noble/ciphers": "2.4.0",
@@ -18,5 +19,42 @@
     "@cloudflare/workers-types": "^5.20261016.1",
     "typescript": "^5.9.0",
     "@types/node": "^24.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0001-labs/private.git"
+  },
+  "homepage": "https://github.com/0001-labs/private#readme",
+  "files": [
+    "dist",
+    "LICENSE",
+    "NOTICE",
+    "README.md",
+    "SECURITY.md",
+    "THREAT-MODEL.md"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/private.d.ts",
+      "default": "./dist/private.js"
+    },
+    "./rows": {
+      "types": "./dist/rows.d.ts",
+      "default": "./dist/rows.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    },
+    "./store": {
+      "types": "./dist/store.d.ts",
+      "default": "./dist/store.js"
+    }
   }
 }
