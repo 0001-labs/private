@@ -1,16 +1,9 @@
 import { useEffect, useState } from "react";
 import { ApiError, VaultSession, type Api } from "../../shared/vault-session";
 
-// The web app on locked records. The app keeps asking `/api/state`,
-// `/api/inbox` and the rest as it always has; with the vault open, those requests are answered here,
-// on the person's device, by the vault session, which talks to the server only in locked rows,
-// sealed copies and the pass-through readers. As the film kit does (src/film/kit.tsx), the boundary
-// is `fetch`: no part of the app needs to know whether its records are locked.
-
 const original = globalThis.fetch.bind(globalThis);
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
-/** Money's own API over the browser's fetch, as the vault session needs it. */
 export const webApi: Api = {
   async json<T>(method: string, path: string, body?: unknown) {
     const r = await original(path, {
@@ -40,10 +33,8 @@ const failure = (e: unknown) => {
 };
 const today = () => new Date().toLocaleDateString("en-CA");
 
-/** Whether the app's records are answered by the vault, so a kept file is opened here rather than linked. */
 export let vaultOpen = false;
 
-/** Answers the app's record requests from the vault session from now on. */
 export function installVault(session: VaultSession) {
   vaultOpen = true;
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -58,7 +49,6 @@ export function installVault(session: VaultSession) {
         return json(await session.write(body.state as never, body.expectedVersion));
       }
       if (path === "/api/version") {
-        // Something sealed to the person waits: a version ahead makes the page read again, which adds it.
         const r = await original(input, init);
         const v = (await r.json()) as { version: number; inbox?: number };
         return json({ version: v.version + (v.inbox ? 1 : 0) });
@@ -90,7 +80,6 @@ export function installVault(session: VaultSession) {
       }
       if (path === "/api/shared/state" && method === "GET") return json(await session.shared());
       if (path === "/api/shared" && method === "GET") {
-        // The lists shared with this person: plain ones from owners not locked yet, and the sealed copies.
         const plain = await original(input, init);
         const listed = plain.ok ? ((await plain.json()) as { code: string | null; lists: unknown[] }) : { code: session.who.code, lists: [] };
         if (!session.copies.length) await session.shared();
@@ -107,13 +96,11 @@ export function installVault(session: VaultSession) {
         if (method === "PUT") {
           const body = JSON.parse(String(init?.body)) as { transactions: unknown };
           await session.sharedEdit(code, body.transactions);
-          // Its owner's device applies it when it next opens Money; until then the copy shows as it was.
           return json({ ...copy.slice, transactions: body.transactions, list: copy.list, role: copy.role, owner: copy.owner, waiting: true });
         }
       }
       const open = /^\/api\/open\/([^/]+)$/.exec(path);
       if (open) {
-        // The registry knows a locked record by a hash of its id; this device knows which record that is.
         const r = await original(input, init);
         const found = (await r.json()) as { own?: boolean; kind?: string; id?: string; ref?: string; list?: string };
         if (found.own && found.id) return json({ ...found, id: session.recordOf(found.id) ?? found.id });
@@ -132,10 +119,6 @@ export function installVault(session: VaultSession) {
   };
 }
 
-/**
- * A kept receipt's address for an image, a frame or a download. Plain records link the server's
- * file; locked ones are opened here and shown from the page's own memory (a blob address).
- */
 export function useFileUrl(url: string | null) {
   const [shown, setShown] = useState<string | null>(vaultOpen ? null : url);
   useEffect(() => {

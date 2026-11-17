@@ -7,16 +7,11 @@ import type { VaultMeta } from "../../shared/private/private.ts";
 import { keptHere, newKeys, passkeysPossible, rememberHere, unlockWithPasskey, unlockWithRecovery } from "./keys";
 import { installVault, webApi } from "./shim";
 
-// Before the app opens on locked records: the first time, the person
-// locks their records and keeps their recovery key; on a new browser, they unlock with their passkey
-// or that key. A browser that already holds the key opens straight away, with no screen at all.
-
 export type VaultSessionInfo = { kind: "owner" | "account"; code: string | null; access?: string; email?: string; privacy?: boolean; vault?: boolean };
 type Served = { meta: VaultMeta | null; version: number };
 
 const whoOf = (s: VaultSessionInfo): Who => ({ owner: s.kind === "owner", code: s.code, access: s.kind === "owner" ? "owner" : s.access ?? "paid" });
 
-/** Opens the vault with what this browser kept, or answers what the person must do first. */
 export async function openKept(info: VaultSessionInfo): Promise<{ open: true } | { open: false; meta: VaultMeta | null; version: number }> {
   const served = await webApi.json<Served>("GET", "/api/vault");
   if (!served.meta) return { open: false, meta: null, version: served.version };
@@ -37,7 +32,6 @@ function Screen({ title, children }: { title: ReactNode; children: ReactNode }) 
   );
 }
 
-/** The first lock, or the unlock on a new browser; `onOpen` once the vault answers the app. */
 export function Gate({ info, meta, onOpen }: { info: VaultSessionInfo; meta: VaultMeta | null; onOpen: () => void }) {
   const [step, setStep] = useState<"lock" | "locking" | "recovery" | "unlock">(meta ? "unlock" : "lock");
   const [error, setError] = useState("");
@@ -55,7 +49,6 @@ export function Gate({ info, meta, onOpen }: { info: VaultSessionInfo; meta: Vau
     onOpen();
   }
 
-  // The first lock: a passkey where the browser can make one, and always the recovery key.
   async function begin() {
     setBusy(true);
     setError("");
@@ -69,7 +62,6 @@ export function Gate({ info, meta, onOpen }: { info: VaultSessionInfo; meta: Vau
       setBusy(false);
     }
   }
-  // Once the recovery key is kept, the records are locked: read plain, locked here, swapped on the server.
   async function lock() {
     if (!made) return;
     const groups = made.recoveryText.split("-");

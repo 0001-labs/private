@@ -1,9 +1,7 @@
-/// Carries the core's requests to the network and its finished calls back to whoever awaits them.
 final class VaultBridge: @unchecked Sendable {
     private let lock = NSLock()
     private var calls: [String: CheckedContinuation<String, Error>] = [:]
     weak var core: MoneyCore?
-    /// Sends one request with the person's token: method, path, body, headers; answers the status and body.
     var send: (@Sendable (String, String, Data?, [String: String]) async -> (Int, Data))?
 
     func hold(_ id: String, _ continuation: CheckedContinuation<String, Error>) {

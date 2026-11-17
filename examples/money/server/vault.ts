@@ -10,11 +10,6 @@ import { rateSeries, type RateStore } from "./rates";
 import { isListCode } from "../shared/idv1";
 import type { Sealed } from "../shared/private/store.ts";
 
-// The routes a device with locked records uses. The store keeps rows,
-// files and an inbox it cannot read; the readers under /api/ai pass a file or a batch through to
-// Claude and answer, keeping nothing and logging nothing. Every route sits behind the person's own
-// sign-in, as the records always have.
-
 export interface VaultStore {
   vaulted(): Promise<boolean>;
   versionRead(): Promise<number>;
@@ -41,22 +36,17 @@ export interface VaultRegistry {
 }
 export type VaultEnv = { ANTHROPIC_API_KEY?: string };
 
-/** Who asks, as the Worker knows them. */
 export type VaultPerson = {
   store: string;
-  /** Their person code, null until an account has one. */
   code: string | null;
   access: "owner" | "paid" | "free" | "lapsed" | "closed";
-  /** The `money.privacy` flag for this person. A store already locked works whatever it says. */
   privacy: boolean;
-  /** The iPhone app's bearer token: no page origin to check. */
   bearer: boolean;
 };
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers });
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const day = /^\d{4}-\d{2}-\d{2}$/;
-/** The most rows one save sends: a whole vault's first lock. */
 const BODY_MAX = 40_000_000;
 
 async function bodyJson(request: Request, max = BODY_MAX) {
@@ -78,7 +68,6 @@ class VaultError extends Error {
   }
 }
 
-/** A device's write from a page needs the page's own origin and JSON; the app's bearer token is never sent by a browser on its own. */
 function writable(request: Request, url: URL, who: VaultPerson, type = "application/json") {
   if (!who.bearer && request.headers.get("origin") !== url.origin) throw new VaultError(403, "Invalid origin");
   if (!request.headers.get("content-type")?.startsWith(type)) throw new VaultError(415, `Send ${type}`);
@@ -86,11 +75,6 @@ function writable(request: Request, url: URL, who: VaultPerson, type = "applicat
 
 const rowsSchema = z.array(z.object({ section: z.string(), key: z.string(), value: z.string() }).strict());
 
-/**
- * /api/vault…, /api/ai/…, /api/rates and the locked side of sharing. Null for any other path.
- * `store` is the person's own; `storeOf` opens another's only to keep what a grant lets this
- * person send them (a shared list's edit) or read (a shared receipt's locked file).
- */
 export async function vaultRoutes(
   request: Request,
   who: VaultPerson,
@@ -114,7 +98,6 @@ export async function vaultRoutes(
   if (!ours) return null;
   try {
     const locked = await store.vaulted();
-    // Off for this person and nothing locked yet: the vault is not here.
     if (!who.privacy && !locked) return json({ error: "Not found" }, 404);
     const paid = who.access === "owner" || who.access === "paid";
 
@@ -133,7 +116,6 @@ export async function vaultRoutes(
       return json(await store.vaultWrite(body.put, body.del, body.expectedVersion, refuse));
     }
     if (path === "/api/vault/adopt") {
-      // The first lock: a new account's empty records, or plain records moved over by the person's device.
       if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
       writable(request, url, who);
       if (!who.privacy) return json({ error: "Not found" }, 404);
@@ -145,12 +127,10 @@ export async function vaultRoutes(
       if (who.code && key) await registry.personKeySet(who.code, who.store, key);
       return json(done);
     }
-    // Before the first lock only the readers, the rates and the files being moved over are open.
     const staging = /^\/api\/vault\/files\/[0-9a-f-]{36}$/.test(path) && request.method === "PUT";
     if (!locked && path !== "/api/rates" && !path.startsWith("/api/ai/") && !staging) return json({ error: "Lock your records first", vault: false }, 409);
 
     if (path === "/api/vault/meta") {
-      // A way back in added or replaced (a passkey, a new recovery key); the vault keeps its key.
       if (request.method !== "PUT") return json({ error: "Method not allowed" }, 405);
       writable(request, url, who);
       await store.vaultWraps(await bodyJson(request, 50_000));
@@ -188,7 +168,6 @@ export async function vaultRoutes(
       return json({ done: body.ids.length });
     }
     if (path === "/api/vault/codes") {
-      // Codes for new records, kept against a hash of the record's id, never the id.
       if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
       writable(request, url, who);
       const kinds = ["account", "view", "transaction", "plan", "invoice", "goal"] as const;
@@ -196,7 +175,6 @@ export async function vaultRoutes(
       return json({ codes: body.needed.length ? await registry.codeClaim(who.store, body.needed) : [] });
     }
     if (path === "/api/vault/people") {
-      // The public keys of the people this person shares with, to seal their copies to.
       if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
       writable(request, url, who);
       const body = z.object({ people: z.array(z.string().max(12)).max(200) }).strict().parse(await bodyJson(request, 20_000));
@@ -219,7 +197,6 @@ export async function vaultRoutes(
     }
     const sharedEdit = /^\/api\/shared\/([^/]+)\/edit$/.exec(path);
     if (sharedEdit) {
-      // An edit to a list shared with this person, sealed to its owner: their device applies it.
       if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
       writable(request, url, who);
       const grant = who.code ? (await registry.grantsFor(who.code)).find((g) => g.list === sharedEdit[1]) : undefined;
@@ -233,7 +210,6 @@ export async function vaultRoutes(
     }
     const sharedFile = /^\/api\/shared\/([^/]+)\/file\/([0-9a-f-]{36})$/.exec(path);
     if (sharedFile) {
-      // A shared payment's receipt, still locked: its key travels only in the sealed copy.
       if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
       const grant = who.code ? (await registry.grantsFor(who.code)).find((g) => g.list === sharedFile[1]) : undefined;
       if (!grant || !uuid.test(sharedFile[2])) return json({ error: "Not shared with you" }, 404);
@@ -242,7 +218,6 @@ export async function vaultRoutes(
     }
 
     if (path === "/api/rates") {
-      // Reference rates for the currencies a device names, from a first day: codes and dates only.
       if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
       const currencies = (url.searchParams.get("currencies") || "").split(",").filter((c) => /^[A-Z]{3}$/.test(c)).slice(0, 20);
       const from = url.searchParams.get("from") || "";
@@ -251,7 +226,6 @@ export async function vaultRoutes(
       return json({ series: await rateSeries(currencies, from, today, rates) });
     }
 
-    // The pass-through readers: what a device sends is read by Claude and answered; nothing is kept or logged.
     if (path.startsWith("/api/ai/")) {
       if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
       if (!who.bearer && request.headers.get("origin") !== url.origin) return json({ error: "Invalid origin" }, 403);
@@ -309,14 +283,12 @@ export async function vaultRoutes(
     if (e instanceof VaultError) return json({ error: e.message }, e.status);
     if (e instanceof z.ZodError) return json({ error: "Check what was sent" }, 400);
     const message = e instanceof Error ? e.message : "";
-    // The store's own refusals say what they refused, never what was sent.
     if (message.startsWith("Conflict:")) return json({ error: "Another device changed these records. Reload before saving." }, 409);
     if (message.startsWith("Refused:")) return json({ error: message.slice(9) }, 400);
     return json({ error: "Could not do that. Try again." }, 400);
   }
 }
 
-/** The read context a device sends beside a file, base64url JSON in a header: today and its accounts' names and currencies. */
 function contextOf(header: string | null): ReadContext {
   try {
     const value = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob((header || "").replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0))));

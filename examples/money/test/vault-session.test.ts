@@ -6,9 +6,6 @@ import { ApiError, lockFirst, VaultSession, type Api } from "../shared/vault-ses
 import type { VaultRow } from "../shared/vault-records";
 import { keysFrom, newRecordsKey, newRecoverySecret, newVault, sealJson, unb64, wrapKey, type VaultMeta } from "../shared/private/private.ts";
 
-// The server as a device meets it, kept in memory: what it holds is what the operator could read.
-// Every test ends by looking through all of it for the records' words.
-
 type Store = { meta: VaultMeta | null; version: number; rows: Map<string, VaultRow>; files: Map<string, Uint8Array>; inbox: { id: string; kind: string; body: string; meta: Record<string, string> }[] };
 function server() {
   const stores = new Map<string, Store>();
@@ -77,7 +74,6 @@ function server() {
       throw new ApiError(404, path);
     },
   });
-  /** Everything the server holds, as the operator would see it. */
   const everything = () => JSON.stringify({ stores: [...stores].map(([k, s]) => [k, s.meta, [...s.rows.values()], [...s.files.values()].map((f) => new TextDecoder().decode(f)), s.inbox]), copies: [...copies.values()] });
   return { api, storeOf, keys, grants, plain, everything };
 }
@@ -111,7 +107,6 @@ it("adds what an assistant sealed and what the drop zone read, and saves them lo
   const plain = validateState({ ...sampleState(today), version: 3 });
   const { recordsKey, meta } = await vault(srv.api("user:v", "Vv1007"), plain);
   const account = plain.accounts.find((a) => a.kind === "bank" && a.currency === "JPY")!;
-  // What the Worker does with an assistant's send to a locked store (server/worker.ts sealFeed).
   srv.storeOf("user:v").inbox.push({
     id: "m1",
     kind: "feed",
@@ -139,7 +134,6 @@ it("seals a shared list to the person it is shared with, who opens it, and their
   const friend = await vault(srv.api("user:w", "Ww1008"), validateState({ ...sampleState(today), accounts: [], snapshots: [], transactions: [], plans: [], goals: [], version: 3 }));
   const mine = VaultSession.open(srv.api("user:v", "Vv1007"), owner.recordsKey, owner.meta, { owner: false, code: "Vv1007", access: "paid" });
   let s = await mine.read(today);
-  // A code for the account, as Plus gives it, then a grant to edit.
   const bank = s.accounts.find((a) => a.kind === "bank")!;
   s = await mine.write({ ...s, accounts: s.accounts.map((a) => (a.id === bank.id ? { ...a, code: undefined } : a)) }, s.version);
   const list = s.accounts.find((a) => a.id === bank.id)!.code!;

@@ -4,24 +4,16 @@ import { b64, fromUtf8, keysFrom, useTextCipher, newRecordsKey, newRecoverySecre
 import { lockAll } from "../../shared/vault-records";
 import { sampleState } from "./sample";
 
-// Locked records in the iPhone app: the web's vault session, run here in
-// JavaScriptCore, so the app opens, saves and adds exactly as the web does. JavaScriptCore has no
-// network of its own; each request goes to the app (`MoneyNative.request`), which sends it with the
-// person's token and answers through `answer`. Calls run as promises and end with `MoneyNative.done`.
-
 declare const MoneyNative: {
   request(id: string, method: string, path: string, body: string, headers: string): void;
   done(call: string, ok: boolean, payload: string): void;
-  /** CryptoKit's AES-GCM for locked text: JavaScriptCore in an app runs without a JIT, so ours is slow there. */
   lockText?(key: string, text: string, aad: string): string;
   unlockText?(key: string, locked: string, aad: string): string;
 };
 
-// The app's own AES-GCM, the same locked format, wherever it offers one (MoneyCore.swift).
 if (typeof MoneyNative !== "undefined" && MoneyNative.lockText && MoneyNative.unlockText)
   useTextCipher({ lock: (k, t, a) => MoneyNative.lockText!(k, t, a), unlock: (k, l, a) => MoneyNative.unlockText!(k, l, a) });
 
-/** Standard base64 with padding, as Foundation's `Data(base64Encoded:)` reads it. */
 const std64 = (bytes: Uint8Array) => {
   const url = b64(bytes).replace(/-/g, "+").replace(/_/g, "/");
   return url + "=".repeat((4 - (url.length % 4)) % 4);
@@ -73,7 +65,6 @@ const opened = () => {
   return session;
 };
 
-/** Each takes its arguments as strings, as the app passes them, and answers JSON. */
 const calls: Record<string, (...args: string[]) => Promise<unknown>> = {
   read: (today) => opened().read(today),
   write: (records, version) => opened().write(validateState(JSON.parse(records)), Number(version)),
@@ -88,19 +79,16 @@ const calls: Record<string, (...args: string[]) => Promise<unknown>> = {
 };
 
 export const vault = {
-  /** The app's answer to a request. */
   answer(id: string, status: number, body: string) {
     const resolve = waiting.get(id);
     waiting.delete(id);
     resolve?.({ status: Number(status), body: body ? unb64(body) : new Uint8Array() });
     return "";
   },
-  /** Opens the vault with the records key the app keeps in its Keychain; throws when it is not this vault's. */
   open(meta: string, key: string, who: string) {
     session = VaultSession.open(api, unb64(key), JSON.parse(meta) as VaultMeta, JSON.parse(who) as Who);
     return JSON.stringify(true);
   },
-  /** The records key a typed recovery key opens, for the app to keep. */
   recover(meta: string, typed: string) {
     return JSON.stringify(std64(recordsKeyFromRecovery(JSON.parse(meta) as VaultMeta, typed)));
   },
@@ -108,7 +96,6 @@ export const vault = {
     session = null;
     return "";
   },
-  /** Made-up records locked as the server would keep them, with their recovery key, for the app's tests. */
   sample(today: string) {
     const key = newRecordsKey();
     const recovery = newRecoverySecret();
@@ -116,7 +103,6 @@ export const vault = {
     const state = validateState({ ...sampleState(today), version: 4 });
     return JSON.stringify({ served: { meta, version: 4, rows: lockAll(state, keysFrom(key)).put, inbox: 0 }, recovery: recoveryText(recovery), transactions: state.transactions.length });
   },
-  /** Starts a call; it ends with `MoneyNative.done(call, ok, json)`. */
   call(call: string, name: string, args: string) {
     const run = calls[name];
     if (!run) {

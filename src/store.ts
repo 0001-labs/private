@@ -1,19 +1,9 @@
 import { unb64, type LockedRow as VaultRow, type VaultMeta, type Wrap } from "./private.ts";
 
-// Private's store: a person's locked records in a SQLite Durable Object
-// of their own. The store keeps what the person's devices send and cannot read any of it: rows locked
-// with a key it never sees, files locked with keys kept inside those rows, and an inbox of what others
-// sealed to the person's public key (an assistant's send, an edit to a shared list). Once a store
-// holds a vault, the product deletes its plain records in the same step (`adopt`'s `clear`) and every
-// plain path must refuse it.
-
 type Sql = DurableObjectStorage["sql"];
 
-/** The most a person's inbox holds before senders are asked to wait for the person to open the product. */
 export const INBOX_LIMIT = 2_000;
-/** The most a locked file weighs: a kept receipt of 1.9 MB, locked and written in base64. */
 export const FILE_MAX = 2_700_000;
-/** A store row's limit, less room. */
 const ROW_MAX = 1_900_000;
 
 export type Sealed = { id: string; kind: string; body: string; created: number; meta: Record<string, string> };
@@ -30,7 +20,6 @@ const isWrap = (w: Wrap) =>
   (w.kind === "recovery" || (w.kind === "passkey" && typeof w.credential === "string" && w.credential.length < 400 && typeof w.salt === "string" && w.salt.length < 100));
 
 export class VaultTables {
-  /** `sections` names the product's sections; a row in any other is refused. */
   constructor(
     private readonly sql: Sql,
     private readonly transaction: <T>(fn: () => T) => T,
@@ -58,11 +47,6 @@ export class VaultTables {
       rows: this.sql.exec<VaultRow>("SELECT section, key, value FROM vault_rows ORDER BY key").toArray().map((r) => ({ ...r })),
     };
   }
-  /**
-   * Takes the person's first locked rows in place of their plain records, in one step: the plain
-   * records, receipts and uploads waiting to be read are deleted in the same transaction. `clear`
-   * deletes the product's plain tables, so nothing readable stays behind.
-   */
   adopt(meta: unknown, rows: VaultRow[], expected: number, current: number, clear: () => void) {
     if (!isMeta(meta)) throw Error("Refused: not a vault");
     if (meta.wraps.length === 0) throw Error("Refused: a vault needs a way back in");
@@ -78,7 +62,6 @@ export class VaultTables {
       return { version };
     });
   }
-  /** Writes what a device changed, if it read the version that is kept; `refuse` names sections this person may not keep. */
   write(put: VaultRow[], del: string[], expected: number, refuse: readonly string[] = []) {
     checkRows(put, this.sections);
     if (!Array.isArray(del) || del.some((k) => typeof k !== "string" || k.length > 64)) throw Error("Refused: unknown rows");
@@ -94,7 +77,6 @@ export class VaultTables {
       return { version };
     });
   }
-  /** New ways back in (a passkey added, the recovery key replaced); the vault's own key cannot change here. */
   setWraps(meta: unknown) {
     if (!isMeta(meta)) throw Error("Refused: not a vault");
     const kept = this.meta();
@@ -114,7 +96,6 @@ export class VaultTables {
   fileDelete(id: string) {
     this.sql.exec("DELETE FROM vault_files WHERE id = ?", id);
   }
-  /** Keeps something sealed to the person, opened by their device the next time it reads. */
   sealedPut(s: Omit<Sealed, "created">) {
     const count = this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM sealed").toArray()[0].n;
     if (count >= INBOX_LIMIT) throw Error("Refused: the inbox is full until its owner opens it");

@@ -1,5 +1,3 @@
-/// AES-256-GCM for locked text in Private's format: "v1." and base64url of the nonce, ciphertext and
-/// tag, which is CryptoKit's combined box. The key is base64url; the text and its binding are UTF-8.
 enum VaultCipher {
     enum Failure: Error { case format }
     static func base64url(_ data: Data) -> String {

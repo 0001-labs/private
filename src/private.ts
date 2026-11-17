@@ -5,22 +5,8 @@ import { hmac } from "@noble/hashes/hmac.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { randomBytes } from "@noble/hashes/utils.js";
 
-// Private: records only the person's own
-// devices can open. Every record is locked on the person's device with their records key, which the
-// server never holds, so whoever runs the server, its database, backups and logs sees only what this
-// file writes. One implementation for browsers, Workers, tests and an iPhone app's JavaScriptCore
-// (which has no Web Crypto): the audited noble libraries do the work everywhere.
-//
-// - The records key (32 random bytes) locks each row with AES-256-GCM, its place and purpose bound
-//   as associated data. Rows are found by an HMAC of their id, never the id itself.
-// - The exchange key pair (X25519, drawn from the records key) lets anyone seal something only the
-//   person can open: what an assistant sends, a share someone writes for them, an edit to a list.
-// - The records key reaches a new device wrapped: by a passkey's PRF secret, by the recovery key, or
-//   by that device's own key. The server keeps the wrapped copies, which open nothing without those.
-
 export const PRIVATE_VERSION = 1;
 
-/** UTF-8 written by hand: JavaScriptCore has no TextEncoder. */
 export function utf8(s: string) {
   const out: number[] = [];
   for (const ch of s) {
@@ -47,7 +33,6 @@ export function fromUtf8(b: Uint8Array) {
 }
 
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-/** Base64url without padding, written by hand: JavaScriptCore has no btoa. */
 export function b64(bytes: Uint8Array) {
   let out = "";
   let i = 0;
@@ -81,20 +66,15 @@ export function unb64(text: string) {
   return out.subarray(0, o);
 }
 
-// Private's v1 labels read "money/v1" because Money made the first vaults with them; every product uses
-// them unchanged, since each person's keys are random. A new label is a new version, never an edit.
 const LABEL = "money/v1";
 const derive = (key: Uint8Array, info: string, length = 32) => hkdf(sha256, key, undefined, utf8(`${LABEL}/${info}`), length);
 
-/** The keys one records key opens: rows are locked with `rows`, found by `index`. */
 export type Keys = { records: Uint8Array; rows: Uint8Array; index: Uint8Array; exchange: { publicKey: Uint8Array; privateKey: Uint8Array } };
 
 export const newRecordsKey = () => randomBytes(32);
 
-/** A random key for one kept file; it travels inside the transaction that shows the file. */
 export const newFileKey = () => randomBytes(32);
 
-/** Locks bytes with a key: "v1." and the nonce and ciphertext. `aad` binds them to where they belong. */
 export function lock(key: Uint8Array, plain: Uint8Array, aad: string) {
   const nonce = randomBytes(12);
   const sealed = gcm(key, nonce, utf8(aad)).encrypt(plain);
@@ -107,16 +87,10 @@ export function unlock(key: Uint8Array, locked: Uint8Array, aad: string) {
   if (locked.length < 28) throw Error("Locked data is too short");
   return gcm(key, locked.subarray(0, 12), utf8(aad)).decrypt(locked.subarray(12));
 }
-/**
- * A platform's own AES-256-GCM for text, where JavaScript is slow (an iPhone app's JavaScriptCore runs
- * without a JIT): the same format, "v1." and base64url of the nonce, ciphertext and tag, as CryptoKit's
- * combined box writes it. The key arrives as base64url. `unlock` throws on a wrong key or changed text.
- */
 export type TextCipher = { lock(key: string, text: string, aad: string): string; unlock(key: string, locked: string, aad: string): string };
 let native: TextCipher | null = null;
 const keyNames = new WeakMap<Uint8Array, string>();
 const nameOf = (key: Uint8Array) => keyNames.get(key) ?? (keyNames.set(key, b64(key)), keyNames.get(key)!);
-/** Locks and opens text with the platform's cipher from now on (null: this file's own). */
 export function useTextCipher(cipher: TextCipher | null) {
   native = cipher;
 }
@@ -127,7 +101,6 @@ export function unlockText(key: Uint8Array, locked: string, aad: string) {
   return fromUtf8(unlock(key, unb64(locked.slice(3)), aad));
 }
 
-/** Seals bytes so only the holder of `publicKey`'s private half can open them (X25519, HKDF, AES-GCM). */
 export function seal(publicKey: Uint8Array, plain: Uint8Array, purpose: string) {
   const ephemeral = x25519.utils.randomSecretKey();
   const ephemeralPublic = x25519.getPublicKey(ephemeral);
@@ -156,11 +129,6 @@ function concat(...parts: Uint8Array[]) {
   return out;
 }
 
-/**
- * What the server keeps of a vault: the public half of the exchange pair (its private half is drawn
- * from the records key), a check that a records key is the right one, and the records key wrapped
- * for each way back in. Nothing here opens a record without a passkey, the recovery key or a device.
- */
 export type Wrap =
   | { kind: "recovery"; wrapped: string; created: string }
   | { kind: "passkey"; credential: string; salt: string; wrapped: string; created: string; name?: string };
@@ -168,7 +136,6 @@ export type VaultMeta = { v: 1; publicKey: string; check: string; wraps: Wrap[] 
 
 const CHECK = "money-vault-check";
 
-/** Everything a records key opens; with the vault's meta, it must be that vault's key. */
 export function keysFrom(records: Uint8Array, meta?: Pick<VaultMeta, "check" | "publicKey">): Keys {
   const rows = derive(records, "rows");
   const index = derive(records, "index");
@@ -185,12 +152,10 @@ export function keysFrom(records: Uint8Array, meta?: Pick<VaultMeta, "check" | "
   return { records, rows, index, exchange: { privateKey, publicKey } };
 }
 
-/** A new vault's meta for a records key. */
 export function newVault(keys: Keys): VaultMeta {
   return { v: 1, publicKey: b64(keys.exchange.publicKey), check: lockText(keys.rows, CHECK, "check"), wraps: [] };
 }
 
-/** The records key wrapped by a secret only the person has (a passkey's PRF output, the recovery key). */
 export function wrapKey(secret: Uint8Array, records: Uint8Array, purpose: "recovery" | "passkey" | "device") {
   return `v1.${b64(lock(derive(secret, `wrap/${purpose}`), records, `wrap/${purpose}`))}`;
 }
@@ -199,8 +164,6 @@ export function unwrapKey(secret: Uint8Array, wrapped: string, purpose: "recover
   return unlock(derive(secret, `wrap/${purpose}`), unb64(wrapped.slice(3)), `wrap/${purpose}`);
 }
 
-// The recovery key: 32 random bytes written in Crockford's base32 (no I, L, O or U to misread), with
-// two check letters, in nine groups of six.
 const B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 export const newRecoverySecret = () => randomBytes(32);
 export function recoveryText(secret: Uint8Array) {
@@ -240,21 +203,17 @@ export function recoverySecret(text: string) {
   return out;
 }
 
-/** One locked row as a store keeps it: its section's name, its hashed key, and the locked value. */
 export type LockedRow = { section: string; key: string; value: string };
 
-/** A row's place in the store: its id hashed with the person's own key, so the id never shows. */
 export const rowKey = (keys: Pick<Keys, "index">, section: string, id: string) => b64(hmac(sha256, keys.index, utf8(`${section}\u0000${id}`))).slice(0, 32);
 export const lockRow = (keys: Pick<Keys, "rows">, section: string, key: string, value: string) => lockText(keys.rows, value, `row/${section}/${key}`);
 export const unlockRow = (keys: Pick<Keys, "rows">, section: string, key: string, value: string) => unlockText(keys.rows, value, `row/${section}/${key}`);
 
-/** A short fingerprint of a public key, to compare with the person a list is shared with. */
 export const fingerprint = (publicKey: string) => {
   const h = sha256(utf8(publicKey));
   return Array.from(h.subarray(0, 4), (b) => b.toString(16).padStart(2, "0")).join(" ").toUpperCase();
 };
 
-/** The records key a recovery key opens, as typed, checked against the vault. */
 export function recordsKeyFromRecovery(meta: VaultMeta, typed: string) {
   const secret = recoverySecret(typed);
   for (const w of meta.wraps)

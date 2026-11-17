@@ -51,7 +51,6 @@ test("the records key comes back through the recovery key alone; seals open only
 test("a platform's own cipher writes and reads the same locked text", async () => {
   const key = newRecordsKey();
   const { gcm } = await import("@noble/ciphers/aes.js");
-  // A stand-in for CryptoKit: AES-GCM over the combined nonce, ciphertext and tag.
   useTextCipher({
     lock: (k, text, aad) => {
       const nonce = crypto.getRandomValues(new Uint8Array(12));
